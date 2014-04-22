@@ -1,28 +1,27 @@
 package auth
 
 import (
-    "fmt"
-    "os"
-    "github.com/mrjones/oauth"
+	"fmt"
+	"github.com/mrjones/oauth"
+	"os"
 )
 
 // Environment variables for configuration
 const (
-    ENV_EVERNOTE_HOST       = "EVERNOTE_HOST"
-    ENV_CONSUMER_KEY        = "EVERNOTE_API_KEY"
-    ENV_CONSUMER_SECRET     = "EVERNOTE_API_SECRET"
-    ENV_CALLBACK_URL        = "EVERNOTE_SERVICE_CALLBACK"
-    ENV_EVERNOTE_DEBUG      = "EVERNOTE_DEBUG"
+	ENV_EVERNOTE_HOST   = "EVERNOTE_HOST"
+	ENV_CONSUMER_KEY    = "EVERNOTE_API_KEY"
+	ENV_CONSUMER_SECRET = "EVERNOTE_API_SECRET"
+	ENV_CALLBACK_URL    = "EVERNOTE_SERVICE_CALLBACK"
+	ENV_EVERNOTE_DEBUG  = "EVERNOTE_DEBUG"
 )
 
 // URLS for request EVERNOTE service
 
 const (
-    REQUEST_TOKEN_URL       = "/oauth"
-    AUTHORIZE_TOKEN_URL     = "/OAuth.action"
-    ACCESS_TOKEN_URL        = "/oauth"
+	REQUEST_TOKEN_URL   = "/oauth"
+	AUTHORIZE_TOKEN_URL = "/OAuth.action"
+	ACCESS_TOKEN_URL    = "/oauth"
 )
-
 
 // WHOLE BUNCH OF FUNCTIONS FOR ACCESSING
 // OAUTH PARAMETERS
@@ -45,49 +44,63 @@ code. (oauth_token and oauth_verifier).
 
 */
 
+// GetOauthConsumer will return a consumer given a set of URLs
 func GetOauthConsumer(reqTokenUri string, authTokenUri string, accessTokenUri string, debugMode bool) *oauth.Consumer {
 
-        consumerKey := os.Getenv(ENV_CONSUMER_KEY)
-        consumerSecret := os.Getenv(ENV_CONSUMER_SECRET)
+	consumerKey := os.Getenv(ENV_CONSUMER_KEY)
+	consumerSecret := os.Getenv(ENV_CONSUMER_SECRET)
 
-        fmt.Println("consumerKey = ", consumerKey, ", secret = ", consumerSecret)
+	fmt.Println("consumerKey = ", consumerKey, ", secret = ", consumerSecret)
 
-        c := oauth.NewConsumer(
-            consumerKey,
-            consumerSecret,
-            oauth.ServiceProvider{
-                RequestTokenUrl: reqTokenUri,
-                AuthorizeTokenUrl: authTokenUri,
-                AccessTokenUrl: accessTokenUri,
-            })
+	c := oauth.NewConsumer(
+		consumerKey,
+		consumerSecret,
+		oauth.ServiceProvider{
+			RequestTokenUrl:   reqTokenUri,
+			AuthorizeTokenUrl: authTokenUri,
+			AccessTokenUrl:    accessTokenUri,
+		})
 
-        c.Debug(debugMode)
-        return c
+	c.Debug(debugMode)
+	return c
 }
-
 
 // GetEvernoteTempRequestToken will authenticate with Evernote
-// and return the temporary token.
-func GetEvernoteTempRequestToken(host string) (string, string, error) {
+// and return the temporary token and the secret.
+func GetEvernoteTempRequestToken(host string) (string, string, string, error, *oauth.Consumer) {
 
+	shouldDebug := false
+	// if not specified, Getenv returns empty string
+	if os.Getenv(ENV_EVERNOTE_DEBUG) == "true" {
+		shouldDebug = true
+	}
 
-    shouldDebug := false
-    // if not specified, Getenv returns empty string
-    if os.Getenv(ENV_EVERNOTE_DEBUG) == "true" {
-       shouldDebug = true
-    }
+	c := GetOauthConsumer(
+		host+REQUEST_TOKEN_URL,
+		host+AUTHORIZE_TOKEN_URL,
+		host+ACCESS_TOKEN_URL,
+		shouldDebug)
 
-    c := GetOauthConsumer(
-            host + REQUEST_TOKEN_URL,
-            host + AUTHORIZE_TOKEN_URL,
-            host + ACCESS_TOKEN_URL,
-            shouldDebug)
-
-    fmt.Println("Got consumer")
-
-    requestToken, url, err := c.GetRequestTokenAndUrl(os.Getenv(ENV_CALLBACK_URL))
-    return requestToken.Token, url, err
+	requestToken, url, err := c.GetRequestTokenAndUrl(os.Getenv(ENV_CALLBACK_URL))
+	return requestToken.Token, requestToken.Secret, url, err, c
 }
 
+// GetEvernoteAccessToken returns the access token, the secret and any additional data.
+// We basically decompose the oauth.AccessToken struct that is returned.
+func GetEvernoteAccessToken(host string, requestToken string, requestSecret string, verifier string, shouldDebug bool) (string, string, map[string]string, error) {
+	c := GetOauthConsumer(
+		host+REQUEST_TOKEN_URL,
+		host+AUTHORIZE_TOKEN_URL,
+		host+ACCESS_TOKEN_URL,
+		shouldDebug)
+	accessToken, err := c.AuthorizeToken(
+		&oauth.RequestToken{
+			Token:  requestToken,
+			Secret: requestSecret,
+		}, verifier)
 
-
+	if err != nil {
+		fmt.Printf("Could not get access token from evernote: %v", err)
+	}
+	return accessToken.Token, accessToken.Secret, accessToken.AdditionalData, err
+}
