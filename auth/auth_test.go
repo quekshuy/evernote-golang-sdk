@@ -7,7 +7,8 @@ import (
 
 func TestGetEvernoteTempRequestToken(t *testing.T) {
 	host := "https://sandbox.evernote.com"
-	token, url, err := GetEvernoteTempRequestToken(host)
+    // TODO: test for secret (which is now a throwaway variable)
+	token, _, url, _, err := GetEvernoteTempRequestToken(host)
 	if err != nil {
 		fmt.Println("Error occurred: ", err)
 	} else {

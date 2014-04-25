@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"fmt"
+    "log"
 	"github.com/mrjones/oauth"
 	"os"
 )
@@ -50,7 +50,12 @@ func GetOauthConsumer(reqTokenUri string, authTokenUri string, accessTokenUri st
 	consumerKey := os.Getenv(ENV_CONSUMER_KEY)
 	consumerSecret := os.Getenv(ENV_CONSUMER_SECRET)
 
-	fmt.Println("consumerKey = ", consumerKey, ", secret = ", consumerSecret)
+	log.Println("consumerKey = ", consumerKey, ", secret = ", consumerSecret)
+
+    // Error check, if environment variables don't exist
+    if consumerKey == "" || consumerSecret == "" {
+        log.Fatal("No evernote consumer key or secret")
+    }
 
 	c := oauth.NewConsumer(
 		consumerKey,
@@ -67,7 +72,7 @@ func GetOauthConsumer(reqTokenUri string, authTokenUri string, accessTokenUri st
 
 // GetEvernoteTempRequestToken will authenticate with Evernote
 // and return the temporary token and the secret.
-func GetEvernoteTempRequestToken(host string) (string, string, string, error, *oauth.Consumer) {
+func GetEvernoteTempRequestToken(host string) (string, string, string, *oauth.Consumer, error) {
 
 	shouldDebug := false
 	// if not specified, Getenv returns empty string
@@ -82,7 +87,7 @@ func GetEvernoteTempRequestToken(host string) (string, string, string, error, *o
 		shouldDebug)
 
 	requestToken, url, err := c.GetRequestTokenAndUrl(os.Getenv(ENV_CALLBACK_URL))
-	return requestToken.Token, requestToken.Secret, url, err, c
+	return requestToken.Token, requestToken.Secret, url, c, err
 }
 
 // GetEvernoteAccessToken returns the access token, the secret and any additional data.
@@ -100,7 +105,7 @@ func GetEvernoteAccessToken(host string, requestToken string, requestSecret stri
 		}, verifier)
 
 	if err != nil {
-		fmt.Printf("Could not get access token from evernote: %v", err)
+		log.Printf("Could not get access token from evernote: %v", err)
 	}
 	return accessToken.Token, accessToken.Secret, accessToken.AdditionalData, err
 }
