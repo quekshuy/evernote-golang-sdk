@@ -4,8 +4,8 @@
 package UserStore
 
 import (
-	"Errors"
-	"Types"
+	"github.com/quekshuy/evernote-golang-sdk/Errors"
+	"github.com/quekshuy/evernote-golang-sdk/Types"
 	"fmt"
 	"git.apache.org/thrift.git/lib/go/thrift"
 	"math"

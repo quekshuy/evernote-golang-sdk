@@ -26,3 +26,6 @@ _testmain.go
 
 # Mac
 *.DS_Store
+
+# Go test generated test files
+*.test

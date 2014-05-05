@@ -4,13 +4,14 @@
 package NoteStore
 
 import (
-	"Errors"
-	"Limits"
-	"Types"
-	"UserStore"
 	"fmt"
 	"git.apache.org/thrift.git/lib/go/thrift"
 	"math"
+
+	"github.com/quekshuy/evernote-golang-sdk/Errors"
+    "github.com/quekshuy/evernote-golang-sdk/Limits"
+	"github.com/quekshuy/evernote-golang-sdk/Types"
+	"github.com/quekshuy/evernote-golang-sdk/UserStore"
 )
 
 // (needed to ensure safety because of naive import list construction.)

@@ -4,7 +4,7 @@
 package Types
 
 import (
-	"Limits"
+	"github.com/quekshuy/evernote-golang-sdk/Limits"
 	"fmt"
 	"git.apache.org/thrift.git/lib/go/thrift"
 	"math"

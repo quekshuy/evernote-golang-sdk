@@ -72,32 +72,27 @@ func GetOauthConsumer(reqTokenUri string, authTokenUri string, accessTokenUri st
 
 // GetEvernoteTempRequestToken will authenticate with Evernote
 // and return the temporary token and the secret.
-func GetEvernoteTempRequestToken(host string) (string, string, string, *oauth.Consumer, error) {
-
-	shouldDebug := false
-	// if not specified, Getenv returns empty string
-	if os.Getenv(ENV_EVERNOTE_DEBUG) == "true" {
-		shouldDebug = true
-	}
+func GetEvernoteTempRequestToken(evernoteHost string, redirectUri string, isSandbox bool) (string, string, string, *oauth.Consumer, error) {
 
 	c := GetOauthConsumer(
-		host+REQUEST_TOKEN_URL,
-		host+AUTHORIZE_TOKEN_URL,
-		host+ACCESS_TOKEN_URL,
-		shouldDebug)
+		evernoteHost + REQUEST_TOKEN_URL,
+		evernoteHost + AUTHORIZE_TOKEN_URL,
+		evernoteHost + ACCESS_TOKEN_URL,
+		isSandbox)
 
-	requestToken, url, err := c.GetRequestTokenAndUrl(os.Getenv(ENV_CALLBACK_URL))
+	requestToken, url, err := c.GetRequestTokenAndUrl(redirectUri)
 	return requestToken.Token, requestToken.Secret, url, c, err
 }
 
 // GetEvernoteAccessToken returns the access token, the secret and any additional data.
 // We basically decompose the oauth.AccessToken struct that is returned.
-func GetEvernoteAccessToken(host string, requestToken string, requestSecret string, verifier string, shouldDebug bool) (string, string, map[string]string, error) {
+func GetEvernoteAccessToken(evernoteHost string, requestToken string, requestSecret string, verifier string, isSandbox bool) (string, string, map[string]string, error) {
+
 	c := GetOauthConsumer(
-		host+REQUEST_TOKEN_URL,
-		host+AUTHORIZE_TOKEN_URL,
-		host+ACCESS_TOKEN_URL,
-		shouldDebug)
+		evernoteHost + REQUEST_TOKEN_URL,
+		evernoteHost + AUTHORIZE_TOKEN_URL,
+		evernoteHost + ACCESS_TOKEN_URL,
+		isSandbox)
 	accessToken, err := c.AuthorizeToken(
 		&oauth.RequestToken{
 			Token:  requestToken,
