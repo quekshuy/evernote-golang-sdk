@@ -57,6 +57,19 @@ type EvernoteAuthBot struct {
 type BotError struct {
     Message string
     IsRedirect bool
+    IsInvalidLogin bool
+    IsInvalid2FACode bool
+}
+
+// AuthStageResult contains the result for a particular stage
+// in the authentication process.
+type AuthStageResult struct {
+    // In case of error
+    Error error
+    // http.Request objects will commonly be assigned to this.
+    ErrorAssocObject interface{}
+    // the results are stored here. Per method basis
+    Elements map[string]interface{}
 }
 
 func (e *BotError) Error() string {
@@ -80,6 +93,10 @@ func (bot *EvernoteAuthBot) ApiCredentials() (string, string, error) {
     }
     /*log.Printf("API Key = %s, API Secret = %s", key, secret)*/
     return key, secret, err
+}
+
+func (bot *EvernoteAuthBot) TempOauthToken() string {
+    return bot.tmpOauthToken
 }
 
 func (bot *EvernoteAuthBot) PostData() map[string]url.Values {
@@ -160,7 +177,7 @@ func (bot *EvernoteAuthBot) LoadPage(uri string, method string, params url.Value
     }
 
     resp, err = client.Do(req)
-    log.Printf("request: %v\n", req)
+    /*log.Printf("request: %v\n", req)*/
 
     if err != nil {
         if e, yes := isBotError(err); yes && e.IsRedirect {
@@ -203,23 +220,26 @@ func (bot *EvernoteAuthBot) tokenRequestData(addData url.Values) url.Values {
     return v
 }
 
-func (bot * EvernoteAuthBot) GetToken() {
-    fmt.Println("Authorize...")
-    bot.GetTmpOauthToken()
+/*func (bot * EvernoteAuthBot) GetToken() {*/
+    /*fmt.Println("Authorize...")*/
+    /*bot.GetTmpOauthToken()*/
 
-    bot.Login()
+    /*bot.Login()*/
 
-    fmt.Println("Allow access...")
-    bot.AllowAccess()
+    /*fmt.Println("Allow access...")*/
+    /*bot.AllowAccess()*/
 
-    fmt.Println("Getting Token...")
-    bot.GetOauthToken()
+    /*fmt.Println("Getting Token...")*/
+    /*bot.GetOauthToken()*/
 
-}
+/*}*/
 
 // GetTmpOauthToken will query for the initial temporary oauth token
 // that evernote requests for the authentication process to proceed.
-func (bot *EvernoteAuthBot) GetTmpOauthToken() (tmpToken string, err error) {
+func (bot *EvernoteAuthBot) GetTmpOauthToken(results chan<- AuthStageResult) {
+
+    var tmpToken string
+    var err error
 
     urls := bot.urls()
     params := url.Values{"oauth_callback": []string{"https://" + urls["base"]}}
@@ -249,7 +269,14 @@ func (bot *EvernoteAuthBot) GetTmpOauthToken() (tmpToken string, err error) {
     } else {
         err = errors.New("Evernote Temp OAuth phase failed: " + strconv.Itoa(resp.StatusCode))
     }
-    return tmpToken, err
+
+    results <- AuthStageResult{
+        Error: err,
+        ErrorAssocObject: resp,
+        Elements: map[string]interface{}{
+            "token": tmpToken,
+        },
+    }
 }
 
 // Cookie returns a *http.Cookie that has a Name matching the name argument
@@ -265,7 +292,11 @@ func (bot *EvernoteAuthBot) Cookie(name string) *http.Cookie{
 
 // Login prompts user for credentials (including 2FA). Exits if invalid
 // credentials provided.
-func (bot *EvernoteAuthBot) Login() {
+func (bot *EvernoteAuthBot) Login(
+    username string,
+    password string,
+    results chan<- AuthStageResult,
+) {
 
     urls := bot.urls()
     params := url.Values{ "oauth_token": []string{bot.tmpOauthToken }}
@@ -287,7 +318,7 @@ func (bot *EvernoteAuthBot) Login() {
         log.Fatalf("Not found JSESSIONID cookie in response")
     }
 
-    username, password := getLoginCredentials()
+    /*username, password := getLoginCredentials()*/
     postData := bot.PostData()["login"]
     postData.Set("username", username)
     postData.Set("password", password)
@@ -303,35 +334,48 @@ func (bot *EvernoteAuthBot) Login() {
         log.Fatalf("Login failed: %v", err)
     }
 
+    result := AuthStageResult{
+        Error: err,
+        ErrorAssocObject: resp,
+    }
+
     loc := resp.Header.Get("Location")
     // Error in login credentials
     if resp.StatusCode == 200 && loc == "" {
-        if bot.incorrectLogins < 3 {
-            fmt.Println("Sorry, incorrect username or password")
-            bot.incorrectLogins += 1
-            bot.Login()
-        } else {
-            log.Fatal("Incorrect login or password")
+
+        // incorrect login
+        result.Error = &BotError{
+                Message: "Incorrect login",
+                IsRedirect: false,
+                IsInvalidLogin: true,
+            }
+
+    } else if loc == "" {
+
+        /*log.Fatal("Target URL was not found in the response on login")*/
+        result.Error = &BotError{
+            Message: "Target URL was not found in the response on login",
         }
-    }
 
-    if loc == "" {
-        log.Fatal("Target URL was not found in the response on login")
-    }
+    } else {
 
-    if resp.StatusCode == 302 && strings.Contains(loc, "OTCAction") {
-        bot.HandleTwoFactor()
-    }
+        elements := map[string]interface{}{
+            "is2FA": resp.StatusCode == 302 && strings.Contains(loc, "OTCAction"),
+        }
+        result.Elements = elements
 
-    log.Print("Success authorize, redirect to access page")
+        log.Print("Success authorize, redirect to access page")
+        log.Printf("Result= %v", result)
+    }
+    results <- result
 }
 
 // HandleTwoFactor will ask user for 2FA code before proceeding to request
 // for access
-func (bot *EvernoteAuthBot) HandleTwoFactor() {
+func (bot *EvernoteAuthBot) HandleTwoFactor(authCode string, results chan<- AuthStageResult) {
 
     urls := bot.urls()
-    authCode := getUserAuthCode()
+    /*authCode := getUserAuthCode()*/
     postData := bot.PostData()["tfa"]
 
     postData.Set("code", authCode)
@@ -346,32 +390,41 @@ func (bot *EvernoteAuthBot) HandleTwoFactor() {
         postData,
     )
 
+    result := AuthStageResult{
+        Error: err,
+        ErrorAssocObject: resp,
+    }
+
+    // Return on error
     if err != nil {
-        log.Fatalf("HandleTwoFactor: %v", err)
+        results<-result
+        return
     }
 
     loc := resp.Header.Get("Location")
+
     if loc == "" && resp.StatusCode == 200 {
-        if bot.incorrectCodes < 3 {
-            fmt.Println("Sorry, incorrect 2 factor code")
-            bot.incorrectCodes += 1
-            bot.HandleTwoFactor()
-        } else {
-            log.Fatal("Incorrect 2 factor code")
+
+        result.Error = &BotError{
+            IsInvalid2FACode: true,
+            Message: "Invalid 2 factor code",
+        }
+
+    } else if loc == "" {
+        result.Error = &BotError{
+            Message: "Target URL was not found in response on 2factor login",
         }
     }
-
-    if loc == "" {
-        log.Fatal("Target URL was not found in response on 2-factor login")
-    }
+    results <- result
 }
 
-func (bot *EvernoteAuthBot) AllowAccess() {
+func (bot *EvernoteAuthBot) AllowAccess(tmpOauthToken string, results chan<- AuthStageResult) {
 
     urls := bot.urls()
 
     access := bot.PostData()["access"]
-    access.Set("oauth_token", bot.tmpOauthToken)
+    /*access.Set("oauth_token", bot.tmpOauthToken)*/
+    access.Set("oauth_token", tmpOauthToken)
     access.Set("oauth_callback",  "https://" + urls["base"])
 
     resp, err := bot.LoadPage(
@@ -380,14 +433,29 @@ func (bot *EvernoteAuthBot) AllowAccess() {
         access,
     )
 
+    result := AuthStageResult{
+        Error: err,
+        ErrorAssocObject: resp,
+    }
+
     if err != nil {
-        log.Fatalf("Error AllowAccess: %v", err)
+        /*log.Fatalf("Error AllowAccess: %v", err)*/
+        results <- result
+        return
     }
 
+    // If not a redirect means an error
     if resp.StatusCode != 302 {
-        log.Fatalf("Unexpected response status on allowing access 302 != %d", resp.StatusCode)
+        result.Error = &BotError{
+            Message: fmt.Sprintf("Unexpected response status on allowing access 302 != %d",
+                resp.StatusCode,
+            ),
+        }
+        results <- result
+        return
     }
 
+    // Is a redirect, then we examine the redirect destination
     loc := resp.Header.Get("Location")
     if loc != "" {
         parts := strings.Split(loc, "?")
@@ -403,19 +471,31 @@ func (bot *EvernoteAuthBot) AllowAccess() {
             verifier := params.Get("oauth_verifier")
 
             if verifier == "" {
-                log.Fatal("Verifier not found")
+
+                result.Error = &BotError{
+                    Message: "Verifier not found",
+                }
+
             } else {
+                elements := make(map[string]interface{})
+                elements["verifier"] = verifier
+                result.Elements = elements
                 bot.verifierToken = verifier
                 log.Println("Verifier token taken")
             }
         }
     }
+    results <- result
 }
 
-func (bot *EvernoteAuthBot) GetOauthToken() (string, error) {
+func (bot *EvernoteAuthBot) GetOauthToken(
+    tmpOauthToken string,
+    verifier string,
+    results chan<- AuthStageResult,
+){
     urls := bot.urls()
-    params := url.Values{ "oauth_token": []string{ bot.tmpOauthToken},
-        "oauth_verifier": []string{ bot.verifierToken },
+    params := url.Values{ "oauth_token": []string{tmpOauthToken},
+        "oauth_verifier": []string{verifier},
     }
 
     resp, err := bot.LoadPage(
@@ -424,50 +504,54 @@ func (bot *EvernoteAuthBot) GetOauthToken() (string, error) {
         bot.tokenRequestData(params),
     )
 
-    if err != nil {
-        log.Fatalf("Error getting oauth token: %v", err)
-    }
-    if resp.StatusCode != 200 {
-        log.Fatalf("Unexpected response status on getting oauth status token 200 != %d", resp.StatusCode)
+    result := AuthStageResult{
+        Error: err,
+        ErrorAssocObject: resp,
     }
 
+    if err != nil || resp.StatusCode != 200 {
+        results<-result
+        return
+        /*log.Fatalf("Error getting oauth token: %v", err)*/
+    } /*else if resp.StatusCode != 200 {
+        log.Fatalf("Unexpected response status on getting oauth status token 200 != %d", resp.StatusCode)
+    }*/
+
     if bodyBytes, err := ioutil.ReadAll(resp.Body); err != nil {
-        return "", err
+
+        result.Error = err
+        result.ErrorAssocObject = resp.Body
+
     } else {
+
         body := string(bodyBytes)
         data, err := url.ParseQuery(body)
         if err != nil {
-            return "", err
+
+            result.Error = err
+            result.ErrorAssocObject = body
+
+        } else {
+
+            token := data.Get("oauth_token")
+            if token == "" {
+                /*log.Fatalf("Error, no oauth token in returned response: %v", data)*/
+                result.Error = &BotError{
+                    Message: fmt.Sprintf("Error, no oauth token in returned response: %v", data),
+                }
+            } else {
+                bot.oauthToken = token
+                elements := map[string]interface{}{ "oauthToken": token }
+                result.Elements = elements
+            }
+            /*return token, nil*/
         }
-        token := data.Get("oauth_token")
-        if token == "" {
-            log.Fatalf("Error, no oauth token in returned response: %v", data)
-        }
-        bot.oauthToken = token
-        return token, nil
     }
-    return "", nil
+    results <- result
 }
 
 
-// getLoginCredentials asks user for Evernote login credentials
-func getLoginCredentials() (username string, password string) {
 
-    fmt.Printf("Evernote username: ")
-    fmt.Scanf("%s", &username)
-    fmt.Printf("Password: ")
-    fmt.Scanf("%s", &password)
-
-    return username, password
-}
-
-// getUserAuthCode asks user for Evernote 2FA if user has it enabled.
-func getUserAuthCode() (authCode string) {
-
-    fmt.Printf("Auth code: ")
-    fmt.Scanf("%s", &authCode)
-    return authCode
-}
 
 // isBotError used to check errors returned by client.Do() calls.
 // These errors might be errors thrown by our redirectPolicy function (used in 
@@ -484,6 +568,18 @@ func isBotError(e error) (*BotError, bool) {
 }
 
 
+/* The new API has this structure:
 
+    Each method receives a channel that will be used to send
+    a result.
 
+    E.g.
+    GetTmpOauthToken(result chan<- AuthResult)
 
+    They will also receive other parameters that will be used for 
+    processing.
+
+    E.g. 
+    GetOauthToken(tmpOauthToken string, result chan<- AuthResult)
+
+*/
